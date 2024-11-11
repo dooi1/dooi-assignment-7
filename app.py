@@ -235,59 +235,66 @@ def confidence_interval():
     beta0 = float(session.get("beta0"))
     beta1 = float(session.get("beta1"))
     S = int(session.get("S"))
-    X = np.array(session.get("X"))
-    Y = np.array(session.get("Y"))
-    slope = float(session.get("slope"))
-    intercept = float(session.get("intercept"))
     slopes = session.get("slopes")
     intercepts = session.get("intercepts")
 
     parameter = request.form.get("parameter")
-    confidence_level = float(request.form.get("confidence_level"))
+    confidence_level = float(request.form.get("confidence_level")) / 100  # Convert to decimal
 
     # Use the slopes or intercepts from the simulations
     if parameter == "slope":
         estimates = np.array(slopes)
-        observed_stat = slope
+        observed_stat = float(session.get("slope"))
         true_param = beta1
     else:
         estimates = np.array(intercepts)
-        observed_stat = intercept
+        observed_stat = float(session.get("intercept"))
         true_param = beta0
 
-    # TODO 14: Calculate mean and standard deviation of the estimates
-    mean_estimate = np.mean(estimates)
-    std_estimate = np.std(estimates)
+    # Check that S > 1
+    if S <= 1:
+        error_message = "Number of simulations (S) must be greater than 1 to calculate a confidence interval."
+        return render_template("index.html", error_message=error_message)
 
-    # TODO 15: Calculate confidence interval for the parameter estimate
-    # Use the t-distribution and confidence_level
-    t_value = stats.t.ppf(1 - (1 - confidence_level) / 2, df=S-1)
-    margin_of_error = t_value * (std_estimate / np.sqrt(S))
+    # Calculate mean and standard error of the estimates
+    mean_estimate = np.mean(estimates)
+    std_estimate = np.std(estimates, ddof=1)  # Sample standard deviation
+    standard_error = std_estimate / np.sqrt(S)
+
+    # Check for zero standard error
+    if standard_error == 0:
+        error_message = "Standard error is zero; cannot compute confidence interval."
+        return render_template("index.html", error_message=error_message)
+
+    # Calculate the t-value for the given confidence level
+    t_value = stats.t.ppf(1 - (1 - confidence_level) / 2, df=S - 1)
+    margin_of_error = t_value * standard_error
     ci_lower = mean_estimate - margin_of_error
     ci_upper = mean_estimate + margin_of_error
 
-    # TODO 16: Check if confidence interval includes true parameter
-    includes_true = (ci_lower <= true_param <= ci_upper)
+    # Check if confidence interval includes true parameter
+    includes_true = ci_lower <= true_param <= ci_upper
 
-    # TODO 17: Plot the individual estimates as gray points and confidence interval
-    # Plot the mean estimate as a colored point which changes if the true parameter is included
-    # Plot the confidence interval as a horizontal line
-    # Plot the true parameter value
-    # Write code here to generate and save the plot
-    plt.figure(figsize=(8, 6))
+    # Plot the individual estimates as gray points and confidence interval
+    plt.figure(figsize=(10, 6))
     plt.scatter(range(len(estimates)), estimates, color='gray', alpha=0.5, label='Simulated Estimates')
-    plt.axhline(mean_estimate, color='blue', label=f'Mean Estimate = {mean_estimate:.2f}')
-    plt.axhline(ci_lower, color='green', linestyle='--', label=f'CI Lower = {ci_lower:.2f}')
-    plt.axhline(ci_upper, color='green', linestyle='--', label=f'CI Upper = {ci_upper:.2f}')
-    plt.axhline(true_param, color='red', label=f'True Parameter = {true_param:.2f}')
-    plt.title(f'Confidence Interval for {parameter} at {confidence_level*100}%')
+    plt.axhline(mean_estimate, color='blue', linestyle='-', label=f'Mean Estimate = {mean_estimate:.4f}')
+    plt.axhline(ci_lower, color='green', linestyle='--', label=f'CI Lower = {ci_lower:.4f}')
+    plt.axhline(ci_upper, color='green', linestyle='--', label=f'CI Upper = {ci_upper:.4f}')
+
+    # Mark the true parameter value on the plot
+    if includes_true:
+        plt.axhline(true_param, color='purple', linestyle='-', label=f'True {parameter.capitalize()} = {true_param:.4f} (Included)')
+    else:
+        plt.axhline(true_param, color='red', linestyle='-', label=f'True {parameter.capitalize()} = {true_param:.4f} (Excluded)')
+
+    plt.title(f'{int(confidence_level * 100)}% Confidence Interval for {parameter.capitalize()}')
     plt.xlabel('Simulation Index')
     plt.ylabel('Estimate Value')
     plt.legend()
     plot4_path = "static/plot4.png"
     plt.savefig(plot4_path)
     plt.close()
-
 
     # Return results to template
     return render_template(
@@ -296,7 +303,7 @@ def confidence_interval():
         plot2="static/plot2.png",
         plot4=plot4_path,
         parameter=parameter,
-        confidence_level=confidence_level,
+        confidence_level=int(confidence_level * 100),  # Convert back to percentage
         mean_estimate=mean_estimate,
         ci_lower=ci_lower,
         ci_upper=ci_upper,
